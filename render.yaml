@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: rtf
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev --prefix RTF-backend && npm ci --include=dev --prefix RTF-frontend && npm --prefix RTF-backend run db:generate && npm --prefix RTF-frontend run build && npm --prefix RTF-backend run build
+    startCommand: npm --prefix RTF-backend run db:migrate:deploy && node RTF-backend/dist/src/server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ALLOW_PUBLIC_REGISTRATION
+        value: "false"

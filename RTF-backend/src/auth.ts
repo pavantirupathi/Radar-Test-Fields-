@@ -110,6 +110,9 @@ export function requireRole(role: UserRole) {
 
 export const authRoutes = {
   register: asyncRoute(async (req, res) => {
+    if (!config.allowPublicRegistration) {
+      throw new HttpError(403, "Candidate self-registration is disabled. Contact your assessment administrator.");
+    }
     const input = registrationSchema.parse(req.body);
     const passwordHash = await bcrypt.hash(input.password, 12);
     try {

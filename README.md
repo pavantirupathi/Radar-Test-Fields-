@@ -34,6 +34,91 @@ To share the development app with devices on the same trusted Wi-Fi/LAN, find th
 
 The seed command creates an administrator using `ADMIN_EMAIL` and `ADMIN_PASSWORD` from the backend environment, and adds a small sample assessment. Change seed credentials before sharing a development environment. Production must use HTTPS, a managed PostgreSQL service, strong secrets, and appropriately restricted CORS origins.
 
+## Cloudflare + Production Hosting
+
+### Recommended architecture
+
+```text
+Browser
+  -> Cloudflare Pages (Angular static production build + HTTPS)
+  -> Pages Function at /api/* (HTTPS reverse proxy)
+  -> Node.js-compatible backend host (existing Express API)
+  -> PostgreSQL through Prisma
+```
+
+The frontend already calls the relative `/api` path. The Pages Function forwards those requests to the separately hosted backend, preserving the same-origin browser API and HTTP-only cookie flow. It requires an `API_ORIGIN` Pages Function environment variable containing only the backend HTTPS origin, for example `https://your-api-host.example` (no path or trailing route). The proxy rejects missing or non-HTTPS origins.
+
+### Cloudflare Pages setup
+
+Use Cloudflare Pages Git integration with this repository and configure:
+
+| Setting | Value |
+| --- | --- |
+| Root directory | `RTF-frontend` |
+| Build command | `npm ci && npm run build` |
+| Build output directory | `dist/rtf-frontend/browser` |
+| Build environment variable | `NODE_VERSION=20` |
+| Pages Function variable (Production and Preview as needed) | `API_ORIGIN=https://<your-node-backend-origin>` |
+
+Deploy from Git integration so Cloudflare detects `RTF-frontend/functions/api/[[path]].ts`. Pages' standard SPA behavior serves the Angular entry point for application routes when there is no top-level `404.html`. No Wrangler configuration or Workers backend migration is needed. Add any Cloudflare preview frontend origins explicitly to the backend allowlist if previews need to call the API.
+
+The API proxy invokes a Pages Function for API traffic. Review Cloudflare's current Functions quotas/pricing before deployment; static asset hosting and Function requests have different limits. Because this function handles authentication and API calls, choose fail-closed behavior if the Pages Functions allowance is exhausted, so API paths do not appear to succeed by falling back to the Angular page.
+
+### Existing Express backend host
+
+Deploy `RTF-backend` to a conventional Node.js host. Its scripts support:
+
+```powershell
+npm install
+npm run build
+npm start
+```
+
+The host must provide a persistent Node.js process, outbound HTTPS to PostgreSQL, and SMTP connectivity if password-reset emails are enabled. Configure its environment privately:
+
+| Variable | Purpose |
+| --- | --- |
+| `NODE_ENV=production` | Enables secure session cookies. |
+| `PORT` | Supplied by the Node hosting provider; defaults to 3000 for local use. |
+| `DATABASE_URL` | Connection string for persistent PostgreSQL; Prisma continues to use PostgreSQL. |
+| `JWT_SECRET` | Long random signing secret (at least 32 characters). |
+| `FRONTEND_ORIGIN` | Exact Cloudflare Pages origin, e.g. `https://<project>.pages.dev`. Multiple exact origins may be comma-separated; wildcard origins are not supported. |
+| `APP_BASE_URL` | Frontend URL included in password-reset messages; set it to the Pages origin or custom frontend domain. |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | Used by the existing seed script when provisioning an administrator. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Optional email-provider settings for password reset. The credential variable is `SMTP_PASSWORD`. |
+
+Set `FRONTEND_ORIGIN` on the backend to the same origin users open in Cloudflare Pages. The Express CORS middleware uses an explicit allowlist with credentials; do not use `*`. Browser API calls stay on the Pages origin, so the session cookie remains first-party. Production cookies are HTTP-only, Secure, and SameSite=Strict; local development retains its existing HTTP localhost configuration. Cloudflare provides frontend HTTPS, and the API origin configured in Pages must also use HTTPS.
+
+Continue using the existing Prisma/PostgreSQL setup and migrations; this hosting plan does not use D1 or alter the database. Use the provider's persistent PostgreSQL service and its documented backup/restore facilities. Do not run destructive Prisma reset commands against production.
+
+### Cloudflare Workers compatibility
+
+The existing Express backend is **not a drop-in Cloudflare Workers application**. It starts a Node HTTP listener, uses Prisma's Node client/runtime, sends email with Nodemailer/SMTP, and runs an in-process timer. Moving it to Workers would require significant runtime and background-job changes. Keep it on a normal Node.js host; the small Pages Function is only an HTTPS API proxy and does not replace Express.
+
+### Local and production commands
+
+Local development remains unchanged:
+
+```powershell
+# Terminal 1, from RTF-backend
+npm run dev
+
+# Terminal 2, from RTF-frontend
+npm start
+```
+
+Open `http://localhost:4200`; the Angular dev proxy forwards `/api` to `http://127.0.0.1:3000`. Build both apps before deployment:
+
+```powershell
+# From RTF-backend
+npm run build
+
+# From RTF-frontend
+npm run build
+```
+
+Configure production origins, database and SMTP only in the hosting providers' environment settings. Never commit `.env` files or credentials. The Pages Function requires Git-based deployment; a static-only upload would omit the `/api` proxy function.
+
 ### Gmail password-reset email (local development)
 
 The Forgot password form returns “Password reset email is not configured” until all SMTP settings are provided in `RTF-backend\.env`. For Gmail, enable 2-Step Verification on the sending Google account and create a Google App Password; use that app password (not your normal Gmail password). Set:

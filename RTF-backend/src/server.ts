@@ -14,12 +14,12 @@ import { routes } from "./routes";
 const app = express();
 app.disable("x-powered-by");
 app.use(helmet());
-app.use(cors({ origin: config.frontendOrigin, credentials: true }));
+app.use(cors({ origin: config.frontendOrigins, credentials: true }));
 app.use(express.json({ limit: "32kb" }));
 app.use(cookieParser());
 app.use("/api", (req, _res, next) => {
   const origin = req.get("origin");
-  if (origin && origin !== config.frontendOrigin) {
+  if (origin && !config.frontendOrigins.includes(origin)) {
     next(new HttpError(403, "Requests from this origin are not allowed."));
     return;
   }

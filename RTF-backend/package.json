@@ -8,7 +8,6 @@
     "prestart": "npm run build",
     "start": "node dist/src/server.js",
     "db:push": "prisma db push",
-    "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "db:generate": "prisma generate",
     "admin:reset-password": "tsx prisma/reset-password.ts"
